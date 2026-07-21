@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.uv/
+*.egg-info/
+
+# env / secrets (NUNCA commitar)
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# OS / editores
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Claude Code (permissoes locais, especificas da maquina/sessao)
+.claude/settings.local.json

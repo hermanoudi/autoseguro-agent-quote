@@ -1,0 +1,552 @@
+### PRD: AutoSeguro Agente de cotação via WhatsApp
+
+Versão: 1.0
+
+Data: 2026-07-20
+
+Responsável: Hermano Flávio de Moura
+
+---
+
+### Resumo
+
+Agente de IA que atende leads de seguro de veículo pelo WhatsApp da seguradora fictícia
+AutoSeguro. O agente conversa com o lead, qualifica os dados necessários, cota um plano
+usando a API de cotação legada fornecida pelo desafio e decide quando consegue resolver
+sozinho ou quando precisa encaminhar para um vendedor humano. Este PRD documenta a
+solução construída para o desafio técnico FDE / AI Engineer da Namastex e serve de base
+para as capabilities especificadas no OpenSpec e, ao final, para a seção de decisões do
+README de entrega.
+
+---
+
+### Contexto e problema
+
+Público-alvo
+
+- Leads que buscam seguro de veículo e iniciam contato pelo WhatsApp
+- Vendedores humanos que recebem o handoff quando o agente não pode resolver sozinho
+- Avaliador técnico do processo seletivo, que vai ler o código e o README de decisões
+
+Cenários de uso chave
+
+- Lead qualifica os dados do veículo e do plano desejado e recebe a cotação calculada
+- API de cotação falha ou demora, e o agente se recupera sem travar nem inventar preço
+- Lead é recusado por regra de negócio (idade acima do limite, veículo muito antigo) e
+  recebe uma resposta clara e honesta, sem tentativa de nova cotação
+- Situação foge do que o agente resolve com segurança e a conversa é encaminhada a um
+  vendedor humano com o contexto já coletado
+
+Onde essa feature será implantada
+
+- Sistema novo, construído do zero para o desafio. Integra com um sistema já existente e
+  fornecido pronto, o `quote-service` (API HTTP mock de cotação), que não pode ser
+  modificado. O agente sobe como serviço adicional via Docker Compose ao lado dele.
+
+Problemas priorizados
+
+- Hoje não existe atendimento automatizado. Todo lead do WhatsApp é atendido manualmente
+  por um vendedor, o que não escala e depende de disponibilidade humana. Prioridade alta.
+- A API de cotação é deliberadamente instável (20% de falha, 10% de lentidão de 8
+  segundos por chamada, sorteados de forma independente). Um agente ingênuo trava
+  esperando resposta, ou pior, apresenta um preço inventado quando a chamada falha.
+  Prioridade alta, é o ponto que a avaliação mais pesa.
+- Não existe hoje um critério explícito e auditável de quando escalar para um humano.
+  Prioridade alta.
+
+---
+
+### Objetivos e métricas
+
+| Objetivo | Métrica | Meta |
+| --- | --- | --- |
+| Resolver sozinho o máximo de leads elegíveis | Percentual de conversas do eval set concluídas com cotação apresentada, sem handoff, entre os casos elegíveis | 70% ou mais (hipótese) |
+| Nunca apresentar preço incorreto ou inventado | Percentual de respostas com preço que não vieram de uma resposta 200 real da `/quote` | 0% |
+| Recuperar-se de falhas transitórias sem abandonar o lead | Taxa de sucesso de cotação após até 3 tentativas, dado que ao menos uma tentativa natural teria sucedido | acima de 99% (20% de falha por chamada independente cai para cerca de 0,8% em 3 tentativas) |
+| Garantir rastreabilidade completa | Percentual de mensagens e tentativas de cotação com id próprio e status registrado em log | 100% |
+
+---
+
+### Escopo
+
+Incluso
+
+- Endpoint HTTP que recebe mensagens simulando um webhook de WhatsApp e mantém o estado
+  da conversa por `conversation_id`
+- Extração de dados do lead a partir de linguagem natural (idade, veículo e ano, CEP,
+  plano desejado, data de início de vigência)
+- Integração resiliente com `POST /quote`, com retry, timeout, circuit breaker e
+  classificação correta dos tipos de erro
+- Comunicação ao lead das regras de negócio que a API não explica sozinha (carência de
+  30 dias para roubo e furto, pro-rata do primeiro mês, agravo de região)
+- Política de handoff determinística, tabelada e testada
+- Redação de dados sensíveis em log, em qualquer transcrição e em qualquer uso do
+  dataset de conversas
+- Log estruturado com `conversation_id`, `message_id` e `quote_attempt_id`
+- Gerenciamento de credenciais e configuração via `.env`, nunca commitadas
+- Script de demonstração que roda ao menos uma conversa completa ponta a ponta e grava o
+  log de execução exigido pela entrega
+- README explicando como rodar o projeto e as decisões de engenharia tomadas
+
+Fora de escopo
+
+- Interface gráfica de chat ou qualquer front-end visual
+- Integração real com a API oficial do WhatsApp Business (Twilio, Meta). O webhook é
+  simulado via HTTP simples
+- Autenticação e autorização multi-tenant
+- Painel administrativo para vendedores acompanharem handoffs
+- Outros produtos de seguro além de veículo (residencial, vida, etc)
+- Emissão real de apólice ou processamento de pagamento
+- Suporte a múltiplos idiomas
+
+---
+
+### Requisitos funcionais
+
+#### FR-001 Conversa e qualificação do lead
+
+O agente conduz uma conversa em linguagem natural para coletar os dados necessários para
+cotar um plano de seguro de veículo.
+
+**Fluxo principal**
+
+- Lead inicia a conversa via webhook
+- Agente se apresenta, entende a intenção e pergunta pelos dados que ainda faltam
+- Agente confirma os dados coletados antes de cotar
+
+**Fluxos alternativos e exceções**
+
+- Lead fornece vários dados de uma vez, fora de ordem
+- Lead corrige um dado já informado
+- Lead se desvia do assunto e o agente retoma a coleta
+
+**Erros previstos**
+
+- Dado obrigatório ausente após pedidos repetidos de esclarecimento
+- Dado inconsistente após duas tentativas de correção
+
+**Prioridade:** alta
+
+---
+
+#### FR-002 Extração estruturada de dados do lead
+
+O agente converte texto livre em campos estruturados exigidos pela `/quote`, incluindo
+normalização do texto livre de veículo em ano numérico.
+
+**Fluxo principal**
+
+- Recebe a mensagem do lead
+- Extrai idade, ano do veículo, CEP, plano desejado e data de início, quando presentes
+- Marca como pendente qualquer campo não identificado com confiança suficiente
+
+**Fluxos alternativos e exceções**
+
+- Texto livre de veículo sem ano explícito (ex. só marca e modelo)
+- CEP em formato variado (com ou sem hífen)
+
+**Erros previstos**
+
+- Ano de veículo fora da faixa aceita pela API (`1950` a `2100`)
+- Ambiguidade que exige confirmação explícita do lead
+
+**Prioridade:** alta
+
+---
+
+#### FR-003 Cotação resiliente via `QuoteClient`
+
+Toda chamada à `/quote` passa por uma camada única responsável por timeout, retry,
+classificação de erro e circuit breaker.
+
+**Fluxo principal**
+
+- Recebe os dados já validados e monta a requisição
+- Aplica timeout de aproximadamente 3 segundos por tentativa
+- Em erro transitório, tenta novamente com backoff exponencial e jitter, até 3 tentativas
+- Em sucesso, devolve a cotação completa para a camada de conversa
+
+**Fluxos alternativos e exceções**
+
+- Resposta 422 de regra de negócio (`cotacao_recusada`), sem retry
+- Resposta 422 de validação Pydantic (corpo `detail`), tratada como dado inválido, sem
+  retry cego
+- Circuit breaker aberto após falhas consecutivas, evitando novas tentativas por um
+  período
+
+**Erros previstos**
+
+- 500, 502, 503: transitório, retry
+- 422 com corpo `error` e `motivo`: regra de negócio, nunca retry
+- 422 com corpo `detail`: validação de payload, corrigir extração
+- 400 `payload_invalido`: erro nosso, corrigir extração
+- Todas as tentativas esgotadas: aciona handoff, nunca inventa preço
+
+**Prioridade:** alta
+
+---
+
+#### FR-004 Comunicação das regras de negócio ao lead
+
+A cotação apresentada ao lead inclui as regras que a API só devolve implicitamente.
+
+**Fluxo principal**
+
+- Ao apresentar o valor, o agente informa a carência de 30 dias para roubo e furto
+- Quando a data de início não é o primeiro dia do mês, informa o valor pro-rata do
+  primeiro pagamento
+- Quando há agravo de região aplicado, comunica isso de forma transparente
+
+**Fluxos alternativos e exceções**
+
+- Data de início não informada, tratada como o padrão que a API aplicar
+
+**Erros previstos**
+
+- Apresentar o valor sem citar a carência ou o pro-rata quando aplicável
+
+**Prioridade:** média
+
+---
+
+#### FR-005 Política de handoff para humano
+
+Uma função determinística decide quando a conversa é escalada para um vendedor humano.
+O LLM pode sinalizar intenção, mas não decide sozinho.
+
+**Fluxo principal**
+
+- Lead pede explicitamente para falar com um humano
+- Recusa por regra de negócio ocorre e o agente considera oferecer handoff de retenção
+- Circuit breaker aberto ou tentativas de cotação esgotadas
+- Conversa estagnada após N turnos sem progresso na coleta de dados
+
+**Fluxos alternativos e exceções**
+
+- Negociação de desconto ou condição fora da tabela de planos
+- Dado inconsistente após duas correções
+
+**Erros previstos**
+
+- Handoff disparado sem o pacote de contexto (dados coletados até o momento, motivo,
+  tentativas de cotação)
+
+**Prioridade:** alta
+
+---
+
+#### FR-006 Rastreabilidade e log estruturado
+
+Todo evento do sistema é rastreável por identificador próprio.
+
+**Fluxo principal**
+
+- Cada conversa tem `conversation_id`
+- Cada mensagem tem `message_id`
+- Cada tentativa de cotação tem `quote_attempt_id`, número da tentativa, status e
+  latência
+- Eventos são emitidos em log estruturado JSON
+
+**Fluxos alternativos e exceções**
+
+- Nenhuma
+
+**Erros previstos**
+
+- Evento sem identificador ou sem status registrado
+
+**Prioridade:** alta
+
+---
+
+#### FR-007 Proteção de dados sensíveis
+
+Nenhum dado sensível (CPF, telefone, e-mail, placa) aparece em texto puro em log,
+transcrição ou arquivo commitado.
+
+**Fluxo principal**
+
+- Todo texto que passa por log, prompt do LLM ou arquivo persistido passa por um
+  redator de PII antes de sair do processo
+- CEP é redigido parcialmente, preservando os dois primeiros dígitos, necessários para o
+  cálculo do agravo de região
+
+**Fluxos alternativos e exceções**
+
+- Uso do dataset de conversas para eval set ou few-shot, redigido antes de ser commitado
+
+**Erros previstos**
+
+- Qualquer PII bruto encontrado em log ou arquivo commitado
+
+**Prioridade:** alta
+
+---
+
+### Requisitos não funcionais
+
+Performance
+
+- Timeout de aproximadamente 3 segundos por tentativa de chamada à `/quote`, sempre
+  menor que a lentidão simulada de 8 segundos
+- Latência p95 de resposta do agente ao lead no caminho feliz abaixo de 5 segundos,
+  hipótese, considerando o orçamento de retries
+
+Disponibilidade
+
+- Não há SLA de produção, é um ambiente local de avaliação. O requisito real é
+  resiliência funcional, o agente nunca deve travar nem encerrar em erro não tratado,
+  mesmo com a `/quote` inteiramente fora do ar
+
+Segurança e autorização
+
+- Toda credencial (chave de API do provedor de LLM, e qualquer outra futura) é lida de
+  variáveis de ambiente carregadas por um arquivo `.env`
+- `.env` nunca é commitado, listado no `.gitignore`
+- `.env.example` é commitado, documentando as variáveis necessárias sem valores reais
+- Nenhuma chave aparece em log, mensagem de erro ou código-fonte
+
+Observabilidade
+
+- Logs estruturados em JSON, com `conversation_id`, `message_id` e `quote_attempt_id`
+  correlacionáveis entre si
+- Nenhum dado sensível presente nos logs
+
+Confiabilidade e integridade de dados
+
+- Nenhum preço é apresentado ao lead sem ter vindo de uma resposta 200 real da `/quote`
+- Classificação de erro determinística e coberta por teste para cada uma das seis
+  classes de resposta conhecidas da API
+
+Compatibilidade e portabilidade
+
+- Sobe via Docker Compose, como serviço adicional ao lado do `quote-service` já
+  fornecido, sem modificar nada dentro de `quote-service/`
+- Também executável localmente via `uv run`, sem Docker
+
+Compliance
+
+- Dataset de conversas tratado como dado sensível mesmo sendo sintético, com
+  minimização de dados aplicada por princípio, não apenas por obrigação contratual
+
+---
+
+### Arquitetura e abordagem
+
+Abordagem
+
+- Monólito simples em Python. Uma API HTTP (FastAPI) recebe o webhook simulando o
+  WhatsApp, mantém o estado da conversa e orquestra um agente com tool calling que nunca
+  calcula preço sozinho, apenas invoca a tool de cotação e comunica o resultado
+
+Componentes
+
+- API webhook (`POST /message`), FastAPI
+- `ConversationStore`, estado por `conversation_id`, persistência simples em memória
+  mais arquivo append-only
+- Núcleo do agente, SDK Anthropic direto, sem framework de agente, com tool calling
+- `QuoteClient`, httpx mais tenacity, timeout, retry com backoff e jitter, circuit
+  breaker, classificação de erro
+- `HandoffPolicy`, função determinística e testada, separada do LLM
+- Redator de PII, módulo único, também usado como processor do structlog
+- Logger estruturado (structlog), correlacionado por `conversation_id`
+
+Integrações
+
+- `quote-service` fornecido pelo desafio, `POST /quote` e `GET /planos`, via HTTP
+- API do provedor de LLM (Anthropic), autenticada via chave lida do `.env`
+
+---
+
+### Decisões e trade-offs
+
+#### Decisão: o LLM nunca calcula nem estima preço
+
+- **Justificativa:** elimina por construção a possibilidade de alucinação de preço.
+  Preço só existe se veio de uma resposta 200 real da API
+- **Trade-off:** exige tool calling e parsing bem definidos, reduz a liberdade
+  conversacional do modelo em torno do valor da cotação
+
+#### Decisão: handoff é decidido por código determinístico, não pelo LLM
+
+- **Justificativa:** o critério de handoff precisa ser explícito e defensável perante o
+  avaliador, uma tabela de gatilhos testada é mais auditável que uma decisão implícita
+  do modelo
+- **Trade-off:** menos flexibilidade para casos não previstos na tabela de gatilhos
+
+#### Decisão: toda chamada à `/quote` passa por uma única camada `QuoteClient`
+
+- **Justificativa:** resiliência centralizada é testável isoladamente e evita lógica de
+  retry espalhada pelo código do agente
+- **Trade-off:** cria um ponto de acoplamento que precisa ser bem desenhado desde o
+  início, mudanças na política de resiliência afetam todo o sistema
+
+#### Decisão: interface via webhook HTTP em vez de linha de comando
+
+- **Justificativa:** mais fiel ao cenário real de atendimento por WhatsApp, e exige
+  desde já um `ConversationStore` que reflete como o sistema funcionaria em produção
+- **Trade-off:** exige persistência de estado entre requisições e um script de demo
+  dedicado para gerar o log de execução completo exigido pela entrega
+
+#### Decisão: processo guiado por PRD e OpenSpec, com timebox
+
+- **Justificativa:** rigor de especificação antes do código, sem consumir tempo demais
+  do prazo de três dias do desafio
+- **Trade-off:** risco de estourar o timebox se a disciplina de parar e codificar não
+  for seguida
+
+#### Decisão: todas as credenciais via `.env`, nunca commitadas
+
+- **Justificativa:** o repositório final é público no GitHub, exposição de chave de API
+  real seria falha grave de segurança e custo financeiro, além de reprovar o desafio por
+  um descuido básico
+- **Trade-off:** exige manter `.env.example` atualizado e checar `git status` e `git
+  diff` antes de cada commit para garantir que nada sensível entrou
+
+---
+
+### Dependências
+
+#### technical: `quote-service` em execução
+
+O agente depende do serviço de cotação já fornecido, rodando localmente via Docker
+Compose ou via `uv run uvicorn`. Já satisfeita, incluída no repositório do desafio.
+
+#### external: chave de API do provedor de LLM
+
+É necessária uma chave de API válida (Anthropic ou equivalente) fornecida pelo usuário
+via `.env` para o agente funcionar. Bloqueante para qualquer execução real, sem
+substituto dentro do escopo do desafio.
+
+#### technical: dataset de conversas disponível
+
+O `dataset/conversations.parquet` é usado para redação de PII, geração de eval set e
+observação de padrões reais de objeção. Já satisfeita, incluída no repositório.
+
+---
+
+### Riscos e mitigação
+
+#### Confundir os dois formatos de erro 422 da `/quote`
+
+- **Probabilidade:** média
+- **Impacto:** o agente re-tenta uma recusa de regra de negócio como se fosse falha
+  transitória, ou pior, diz ao lead que o sistema está fora do ar quando na verdade é
+  uma recusa legítima, o que quebra a confiança do lead e pesa fortemente contra na
+  avaliação
+- **Mitigação:**
+  - classificar o erro pela presença da chave `error` no corpo da resposta, nunca só
+    pelo status code
+  - um teste nomeado para cada uma das seis classes de resposta conhecidas da API
+- **Plano de contingência:** revisão de código guiada pelo checklist da skill de
+  resiliência antes de considerar a tarefa concluída
+
+#### LLM alucinar preço quando a `/quote` falha totalmente
+
+- **Probabilidade:** baixa, mitigado por design
+- **Impacto:** alto, viola a regra inviolável do projeto e reprova o critério mais
+  pesado da avaliação
+- **Mitigação:**
+  - o preço só pode vir de uma resposta 200 real da tool, nunca gerado pelo LLM
+  - teste de cenário com `QUOTE_FAILURE_RATE=1.0` validando que nenhum preço aparece na
+    resposta ao lead
+- **Plano de contingência:** circuit breaker aberto aciona handoff imediato com mensagem
+  honesta de indisponibilidade
+
+#### Vazamento de dados sensíveis em log ou commit
+
+- **Probabilidade:** média
+- **Impacto:** alto, é um dos seis critérios de avaliação explícitos do desafio, além de
+  falha grave de tratamento de dados pessoais
+- **Mitigação:**
+  - módulo único de redação de PII, aplicado como processor do structlog
+  - checagem manual de CPF, e-mail, telefone e placa nos artefatos antes de cada commit
+- **Plano de contingência:** se algo vazar antes da entrega pública, remover do
+  histórico do git e avisar explicitamente antes de reescrever qualquer commit
+
+#### Exposição de credenciais de API no repositório público
+
+- **Probabilidade:** média, é o motivo do uso de `.env` neste projeto
+- **Impacto:** alto, custo financeiro direto e falha básica de segurança perante o
+  avaliador
+- **Mitigação:**
+  - todas as credenciais lidas de variáveis de ambiente carregadas de `.env`
+  - `.env` listado no `.gitignore`, `.env.example` commitado sem valores reais
+  - checagem de `git status` e `git diff` antes de cada commit
+- **Plano de contingência:** se uma chave real for detectada após commit, revogar a
+  chave imediatamente e reescrever o histórico antes de tornar o repositório público
+
+#### Estourar o prazo de três dias por excesso de processo
+
+- **Probabilidade:** média
+- **Impacto:** médio, atrasa a entrega ou força corte de qualidade justamente nas partes
+  que mais pesam na avaliação (resiliência e testes)
+- **Mitigação:**
+  - timebox rígido, especificações prontas até o fim da manhã do primeiro dia
+  - cronograma diário já definido no plano de execução do projeto
+- **Plano de contingência:** se o timebox estourar, congelar a especificação no estado
+  atual e seguir direto para o código
+
+#### Lentidão simulada da `/quote` travar a experiência da conversa
+
+- **Probabilidade:** média, 10% das chamadas
+- **Impacto:** médio, o lead pode abandonar a conversa por demora percebida
+- **Mitigação:**
+  - timeout de cliente de aproximadamente 3 segundos, menor que os 8 segundos simulados
+  - abortar e re-tentar em vez de esperar a resposta lenta
+- **Plano de contingência:** se todas as tentativas esgotarem o timeout, acionar handoff
+  informando a indisponibilidade de forma honesta
+
+---
+
+### Critérios de aceitação
+
+Checklist objetivo que define se a feature está pronta.
+
+- Uma conversa completa, da qualificação até a apresentação da cotação, roda ponta a
+  ponta sem intervenção manual no caminho feliz
+- Nenhuma resposta ao lead contém preço que não tenha vindo de uma resposta 200 real da
+  `/quote`
+- Toda recusa por regra de negócio (`422 cotacao_recusada`) é comunicada corretamente ao
+  lead, sem retry e sem mensagem de sistema fora do ar
+- Toda falha transitória (500, 502, 503 ou timeout) é re-tentada com backoff e jitter
+  antes de qualquer handoff
+- Existe uma política de handoff documentada, determinística e coberta por teste, com
+  pelo menos os gatilhos: pedido explícito do lead, recusa de regra, esgotamento de
+  retries ou circuit breaker aberto, e estagnação da conversa
+- Toda mensagem e toda tentativa de cotação é registrada com id próprio, status e
+  latência em log estruturado
+- Nenhum dado sensível (CPF, telefone, e-mail, placa) aparece em texto puro em log,
+  transcrição ou arquivo commitado
+- O CEP é redigido parcialmente, preservando os dois primeiros dígitos, quando exposto
+  em log
+- Nenhuma credencial está hardcoded ou commitada no repositório, e `.env.example`
+  documenta as variáveis necessárias
+- Existe um log de execução completo de ao menos um cenário de sucesso e um cenário de
+  falha com handoff, versionado no repositório
+- O README explica como rodar o projeto e documenta as decisões de engenharia tomadas e
+  por quê
+
+---
+
+### Testes e validação
+
+Tipos de teste obrigatórios
+
+- Testes unitários para `QuoteClient` (com transporte fake do httpx, sem subir a API
+  real), `HandoffPolicy`, extração de dados e redator de PII
+- Teste de integração do fluxo completo, do webhook até a resposta, contra o
+  `quote-service` real, subido via Docker Compose
+- Teste de segurança simples, checagem de PII e de credenciais nos artefatos antes de
+  cada commit
+- Teste determinístico de resiliência, usando `QUOTE_SEED` fixo, `QUOTE_FAILURE_RATE`
+  em 1.0 e variações de `QUOTE_SLOW_RATE`
+
+Estratégia de validação
+
+- TDD para as partes determinísticas do sistema, `QuoteClient`, `HandoffPolicy`,
+  extração de dados e redação de PII
+- O loop conversacional é validado por um eval set derivado do dataset de conversas
+  (cerca de 20 a 30 casos), comparando extração de dados e desfecho esperado
+- Validação manual guiada por roteiro, rodando o script de demonstração antes da entrega
+  final
