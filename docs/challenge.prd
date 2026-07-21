@@ -344,7 +344,7 @@ Componentes
 - API webhook (`POST /message`), FastAPI
 - `ConversationStore`, estado por `conversation_id`, persistência simples em memória
   mais arquivo append-only
-- Núcleo do agente, SDK Anthropic direto, sem framework de agente, com tool calling
+- Núcleo do agente, SDK OpenAI direto, sem framework de agente, com tool calling
 - `QuoteClient`, httpx mais tenacity, timeout, retry com backoff e jitter, circuit
   breaker, classificação de erro
 - `HandoffPolicy`, função determinística e testada, separada do LLM
@@ -354,7 +354,7 @@ Componentes
 Integrações
 
 - `quote-service` fornecido pelo desafio, `POST /quote` e `GET /planos`, via HTTP
-- API do provedor de LLM (Anthropic), autenticada via chave lida do `.env`
+- API do provedor de LLM (OpenAI), autenticada via chave lida do `.env`
 
 ---
 
@@ -414,7 +414,7 @@ Compose ou via `uv run uvicorn`. Já satisfeita, incluída no repositório do de
 
 #### external: chave de API do provedor de LLM
 
-É necessária uma chave de API válida (Anthropic ou equivalente) fornecida pelo usuário
+É necessária uma chave de API válida (OpenAI ou equivalente) fornecida pelo usuário
 via `.env` para o agente funcionar. Bloqueante para qualquer execução real, sem
 substituto dentro do escopo do desafio.
 

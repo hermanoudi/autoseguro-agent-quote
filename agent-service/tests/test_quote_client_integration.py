@@ -153,5 +153,5 @@ async def test_planos_le_a_tabela_real_da_api_nao_hardcoded(quote_service_defaul
     tool = _build_tool(planos_data)
 
     assert "essencial" in prompt and "completo" in prompt and "premium" in prompt
-    assert set(tool["input_schema"]["properties"]["plano_id"]["enum"]) == plano_ids
+    assert set(tool["function"]["parameters"]["properties"]["plano_id"]["enum"]) == plano_ids
     assert "30 dias" not in prompt, "o prompt nao pode fixar um numero de dias, so instruir a ler da tool"

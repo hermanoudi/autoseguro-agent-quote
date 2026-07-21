@@ -91,9 +91,9 @@ def test_conversas_diferentes_nao_se_misturam(client):
     assert store.get_or_create("conv_b").lead_data["idade"] == 50
 
 
-def test_sem_anthropic_api_key_retorna_erro_claro_nao_500_cru(monkeypatch):
+def test_sem_openai_api_key_retorna_erro_claro_nao_500_cru(monkeypatch):
     """Sem a dependency override do LLM (usa o get_llm_client real do main.py)."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     import app.main as main_module
 
     main_module._llm_client = None  # garante que vai tentar instanciar de novo
@@ -102,4 +102,4 @@ def test_sem_anthropic_api_key_retorna_erro_claro_nao_500_cru(monkeypatch):
         resp = test_client.post("/message", json={"conversation_id": "conv_x", "text": "oi"})
 
     assert resp.status_code == 503
-    assert "ANTHROPIC_API_KEY" in resp.json()["detail"]
+    assert "OPENAI_API_KEY" in resp.json()["detail"]

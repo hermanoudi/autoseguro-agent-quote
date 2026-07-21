@@ -1,7 +1,7 @@
 ## 1. Scaffolding do projeto
 
 - [x] 1.1 Criar estrutura do serviço do agente (ex.: `agent-service/`) com `pyproject.toml`,
-      `Dockerfile` e dependências (fastapi, httpx, tenacity, structlog, pytest, anthropic sdk)
+      `Dockerfile` e dependências (fastapi, httpx, tenacity, structlog, pytest, openai sdk)
 - [x] 1.2 Adicionar `agent-service` ao `docker-compose.yml`, ao lado do `quote-api` já
       existente, sem modificar nada dentro de `quote-service/`
 - [x] 1.3 Criar `.env.example` documentando as variáveis necessárias (chave de API do
@@ -57,7 +57,7 @@
 - [x] 5.1 Escrever testes de extração estruturada (idade, ano do veículo a partir de
       texto livre, CEP, plano, data de início) usando exemplos derivados do dataset
 - [x] 5.2 Implementar a extração até os testes passarem
-- [x] 5.3 Implementar o núcleo do agente com tool calling via SDK Anthropic direto,
+- [x] 5.3 Implementar o núcleo do agente com tool calling via SDK OpenAI direto,
       garantindo que o LLM só invoca a tool de cotação e nunca calcula preço
 - [x] 5.4 Implementar a apresentação da cotação incluindo carência de 30 dias,
       pro-rata do primeiro mês (quando presente) e agravo de região (quando aplicável)
@@ -94,17 +94,35 @@
       PII, com extração e desfecho esperado anotados (25 casos, `eval/eval_set.jsonl`,
       via `scripts/build_eval_set.py`; verdade de referência tirada de
       `lead_idade_informada`/`veiculo_texto`, já estruturadas no dataset)
-- [~] 8.2 Rodar o agente contra o eval set e ajustar extração/prompt conforme os
-      resultados — **parcial**: `scripts/eval_extraction.py` mede a camada
-      determinística (100% idade/ano na amostra, sem precisar de LLM). A validação do
-      loop conversacional completo (LLM + tool calling) precisa de `ANTHROPIC_API_KEY`
-      real — **bloqueado, aguardando a chave**
+- [x] 8.2 Rodar o agente contra o eval set e ajustar extração/prompt conforme os
+      resultados — feito com `OPENAI_API_KEY` real (`scripts/eval_agent.py`, roda o
+      loop conversacional completo via HTTP contra os 25 casos). Dois achados reais:
+      (1) bug de extração — `_extract_veiculo_ano` lia o ano de `data_inicio`
+      (ex.: "15/07/2026") como se fosse ano do veículo quando os dois não apareciam na
+      mesma mensagem; corrigido excluindo o span da data, com teste de regressão em
+      `tests/test_extraction.py`; extração ficou em 100%/100% (idade/ano) nos 25 casos,
+      antes e depois; (2) a LLM aceitou uma resposta vaga ("qualquer coisa me chama")
+      como confirmação implícita de plano em 1 dos 25 casos — violação leve da regra
+      "só cota com plano confirmado explicitamente". Reforçado o system prompt em
+      `app/agent.py` para exigir que o lead cite o nome do plano; validado que o
+      mesmo caso agora pede confirmação de novo em vez de assumir, e que o caminho
+      feliz (plano dito explicitamente) ainda cota normalmente. Resultado esperado e
+      correto do eval set: 0/25 conversas chegam a cotação via replay, porque nenhum
+      lead do dataset nomeia um plano para o nosso agente (o vendedor humano original
+      escolhia por conta própria — algo que a regra inviolável do agente proíbe); 21/25
+      terminam em handoff por estagnação, o resto fica "active" sem dado suficiente.
+      Ver `agent-service/README.md` (seção de limitações) para o detalhe
 - [x] 8.3 Escrever o script de demonstração que roda uma conversa completa ponta a
       ponta e grava o log de execução (`scripts/demo_conversa.py`, pronto para rodar)
-- [ ] 8.4 Rodar o cenário de sucesso e gravar o log de execução correspondente —
-      **bloqueado, precisa de `ANTHROPIC_API_KEY` real**
-- [ ] 8.5 Rodar o cenário de falha total (`QUOTE_FAILURE_RATE=1.0`) terminando em
-      handoff e gravar o log de execução correspondente — **bloqueado, idem**
+- [x] 8.4 Rodar o cenário de sucesso e gravar o log de execução correspondente —
+      feito com `OPENAI_API_KEY` real (`agent-service/logs/demo_sucesso.jsonl`):
+      cotação real (R$ 241,38/mês, plano completo), pro-rata correto (R$ 132,37 por
+      17 dias), carência calculada certa (30 dias a partir de 15/07/2026 → 14/08/2026)
+- [x] 8.5 Rodar o cenário de falha total (`QUOTE_FAILURE_RATE=1.0`) terminando em
+      handoff e gravar o log de execução correspondente — feito
+      (`agent-service/logs/demo_falha_total.jsonl`): 3 tentativas (502, 502, 500),
+      todas classificadas como transitórias, handoff por
+      `esgotamento_tentativas_cotacao`, nenhum preço na resposta final
 - [x] 8.6 Escrever o README com instruções de execução e a seção de decisões de
       engenharia, alimentada pelo PRD, pelo design.md e pelas specs
       (`agent-service/README.md`)

@@ -23,9 +23,13 @@ def _extract_idade(text: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _extract_veiculo_ano(text: str, idade_span: tuple[int, int] | None) -> int | None:
+def _extract_veiculo_ano(
+    text: str, idade_span: tuple[int, int] | None, data_span: tuple[int, int] | None
+) -> int | None:
     for match in _ANO_VEICULO_RE.finditer(text):
         if idade_span and idade_span[0] <= match.start() < idade_span[1]:
+            continue
+        if data_span and data_span[0] <= match.start() < data_span[1]:
             continue
         return int(match.group(1))
     return None
@@ -46,14 +50,16 @@ def _extract_plano(text: str) -> str | None:
     return plano if plano in _PLANOS_VALIDOS else None
 
 
-def _extract_data_inicio(text: str) -> str | None:
+def _extract_data_inicio(text: str) -> tuple[str, tuple[int, int]] | None:
+    """Devolve o valor ISO e o span do match no texto original — o span é usado para
+    impedir que o ano da data (ex.: 2026 de 15/07/2026) seja lido como veiculo_ano."""
     iso_match = _DATA_ISO_RE.search(text)
     if iso_match:
-        return iso_match.group(0)
+        return iso_match.group(0), iso_match.span()
     br_match = _DATA_BR_RE.search(text)
     if br_match:
         dia, mes, ano = br_match.groups()
-        return f"{ano}-{mes}-{dia}"
+        return f"{ano}-{mes}-{dia}", br_match.span()
     return None
 
 
@@ -65,7 +71,15 @@ def extract_lead_data(text: str) -> dict:
     if idade_match:
         data["idade"] = int(idade_match.group(1))
 
-    veiculo_ano = _extract_veiculo_ano(text, idade_match.span() if idade_match else None)
+    data_inicio_match = _extract_data_inicio(text)
+    if data_inicio_match is not None:
+        data["data_inicio"] = data_inicio_match[0]
+
+    veiculo_ano = _extract_veiculo_ano(
+        text,
+        idade_match.span() if idade_match else None,
+        data_inicio_match[1] if data_inicio_match else None,
+    )
     if veiculo_ano is not None:
         data["veiculo_ano"] = veiculo_ano
 
@@ -76,9 +90,5 @@ def extract_lead_data(text: str) -> dict:
     plano_id = _extract_plano(text)
     if plano_id is not None:
         data["plano_id"] = plano_id
-
-    data_inicio = _extract_data_inicio(text)
-    if data_inicio is not None:
-        data["data_inicio"] = data_inicio
 
     return data

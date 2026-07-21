@@ -13,6 +13,11 @@ venv/
 *.key
 *.pem
 
+# Estado de runtime do agent-service (trilha de auditoria por conversation_id,
+# gerada a cada execucao local/demo — nao e codigo nem entrega, e um banco de dados)
+agent-service/data/
+agent-service/logs/
+
 # OS / editores
 .DS_Store
 .idea/

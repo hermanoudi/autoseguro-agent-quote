@@ -2,7 +2,7 @@
 execução exigido pela entrega.
 
 Requer o agent-service rodando (docker compose up, ou uv run uvicorn) com um
-ANTHROPIC_API_KEY válido carregado via `.env`. Para o cenário de falha total, suba o
+OPENAI_API_KEY válido carregado via `.env`. Para o cenário de falha total, suba o
 `quote-service` com `QUOTE_FAILURE_RATE=1.0` antes de rodar este script (ver
 CLAUDE.md: `docker-compose.yml` fixa as taxas, então rode a API direto com `uv run
 uvicorn` para variar isso).

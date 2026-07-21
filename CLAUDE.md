@@ -9,7 +9,7 @@ consegue ler, entender as decisões, e rodar. Clareza > esperteza.
 ## Stack
 
 Python 3.11+ · FastAPI · httpx · tenacity · structlog · pytest · uv · Docker Compose.
-SDK Anthropic direto — **sem framework de agente**.
+SDK OpenAI direto — **sem framework de agente**.
 
 Comandos: `uv run ...`, `docker compose up --build` (quote-service em :8000).
 

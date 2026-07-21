@@ -28,6 +28,14 @@ class TestExtractVeiculoAno:
         data = extract_lead_data("o carro e de 1920")
         assert "veiculo_ano" not in data
 
+    def test_nao_confunde_ano_da_data_inicio_com_ano_do_veiculo(self):
+        """Turno onde so a data aparece (sem o veiculo, dito em turno anterior da
+        conversa) nao pode fazer o ano da data (ex.: 2026 de 15/07/2026) vazar para
+        veiculo_ano."""
+        data = extract_lead_data("Meu cep e 01310-100, pode comecar dia 15/07/2026")
+        assert "veiculo_ano" not in data
+        assert data["data_inicio"] == "2026-07-15"
+
 
 class TestExtractCEP:
     def test_cep_com_hifen(self):

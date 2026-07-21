@@ -51,7 +51,7 @@ do desafio técnico FDE / AI Engineer da Namastex; o critério de avaliação qu
 - Código novo: serviço do agente (FastAPI, webhook), `QuoteClient`, `HandoffPolicy`,
   extrator de dados, redator de PII, logger estruturado, `ConversationStore`
 - Integrações: `quote-service/` fornecido pelo desafio (`POST /quote`, `GET /planos`,
-  não modificado); API do provedor de LLM (Anthropic), autenticada via `.env`
+  não modificado); API do provedor de LLM (OpenAI), autenticada via `.env`
 - Infraestrutura: novo serviço adicionado ao `docker-compose.yml` ao lado do
   `quote-api` já existente
 - Dataset: `dataset/conversations.parquet` usado para eval set e observação de padrões,

@@ -1,6 +1,6 @@
 """Mede a acurácia da extração determinística (`app.extraction`) contra o eval set.
 
-Não depende de ANTHROPIC_API_KEY: exercita só a camada regex/heurística que roda
+Não depende de OPENAI_API_KEY: exercita só a camada regex/heurística que roda
 antes do LLM. É a parte de "rodar o agente contra o eval set" que dá para validar sem
 chave de API — a validação do loop conversacional completo (LLM + tool calling) precisa
 de uma chave real, ver README.

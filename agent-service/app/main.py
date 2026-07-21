@@ -10,7 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
 from app.agent import handle_message
-from app.llm_client import AnthropicLLMClient, LLMClient
+from app.llm_client import LLMClient, OpenAILLMClient
 from app.observability import configure_logging, get_logger, log_handoff, log_message, log_quote_attempt
 from app.quote_client import QuoteClient
 from app.store import ConversationStore
@@ -39,15 +39,15 @@ def get_quote_client() -> QuoteClient:
 def get_llm_client() -> LLMClient:
     global _llm_client
     if _llm_client is None:
-        if not os.getenv("ANTHROPIC_API_KEY"):
+        if not os.getenv("OPENAI_API_KEY"):
             raise HTTPException(
                 status_code=503,
                 detail=(
-                    "ANTHROPIC_API_KEY nao configurada. Copie .env.example para .env "
+                    "OPENAI_API_KEY nao configurada. Copie .env.example para .env "
                     "e preencha a chave antes de conversar com o agente."
                 ),
             )
-        _llm_client = AnthropicLLMClient()
+        _llm_client = OpenAILLMClient()
     return _llm_client
 
 

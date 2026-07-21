@@ -9,7 +9,7 @@ from app.store import ConversationStore
 
 class FakeLLMClient:
     """Cliente fake: devolve respostas pre-programadas em sequencia e grava as
-    chamadas recebidas, para testar a orquestracao sem rede nem ANTHROPIC_API_KEY."""
+    chamadas recebidas, para testar a orquestracao sem rede nem OPENAI_API_KEY."""
 
     def __init__(self, responses):
         self._responses = list(responses)

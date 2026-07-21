@@ -76,10 +76,15 @@ Alternativa considerada: deixar o LLM decidir via prompt, descartada porque o cr
 avaliação exige um critério "explícito e defensável", o que uma decisão implícita do
 modelo não satisfaz de forma auditável.
 
-### SDK Anthropic direto, sem framework de agente
+### SDK OpenAI direto, sem framework de agente
 Alternativa considerada: usar um framework de orquestração de agentes. Descartado para
 manter o código legível para o avaliador e reduzir superfície de dependências em um
-projeto de 3 dias; tool calling direto via SDK é suficiente para o escopo.
+projeto de 3 dias; tool calling direto via SDK é suficiente para o escopo. A escolha do
+provedor (OpenAI em vez de Anthropic) foi trocada durante a implementação por
+disponibilidade de crédito de API para os testes reais ponta a ponta; o `LLMClient`
+(`app/llm_client.py`) já isolava essa decisão atrás de um `Protocol`, então a troca ficou
+restrita a `llm_client.py` e ao formato de tool schema/mensagens de tool-call em
+`app/agent.py` (function-calling da OpenAI em vez do formato Anthropic).
 
 ### Redação de PII como processor único do structlog
 Um módulo de redação aplicado como processor do logger estruturado, garantindo que a

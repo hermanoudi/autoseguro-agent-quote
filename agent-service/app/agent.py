@@ -37,8 +37,12 @@ cotacao (dias de carencia, multiplicadores, valores). Todo numero que voce citar
 que ter vindo literalmente do resultado da tool `cotar_seguro` nesta conversa — nunca \
 de memoria ou suposicao sua, mesmo que pareca obvio.
 - Antes de chamar a tool, confirme com o lead: idade, ano do veiculo e o plano \
-desejado (opcoes atuais: {plano_ids}). CEP e data de inicio sao opcionais, mas \
-pergunte por eles se o lead nao mencionar.
+desejado (opcoes atuais: {plano_ids}). So considere o plano confirmado se o lead \
+citar um dos nomes das opcoes explicitamente (ex.: "quero o completo") ou concordar \
+claramente com um plano que voce sugeriu por nome. Respostas vagas como "qualquer \
+um", "tanto faz", "pode ser" ou "qualquer coisa me chama" NAO contam como \
+confirmacao de plano — nesse caso pergunte de novo, oferecendo as opcoes por nome. \
+CEP e data de inicio sao opcionais, mas pergunte por eles se o lead nao mencionar.
 - Quando a tool devolver uma cotacao com sucesso (`resultado: sucesso`), sua resposta \
 SEMPRE menciona a carencia usando o valor exato do campo `carencia.dias` do \
 resultado (nao assuma um numero fixo de dias — {carencia_obs}) para as coberturas \
@@ -57,24 +61,28 @@ continuidade. Nunca apresente nenhum valor numerico de premio nesse caso.
 
 
 def _build_tool(planos_data: dict) -> dict:
-    """Schema da tool com o enum de `plano_id` lido de `GET /planos`, não hardcodado."""
+    """Schema da tool (formato function-calling da OpenAI) com o enum de `plano_id`
+    lido de `GET /planos`, não hardcodado."""
     plano_ids = [p["id"] for p in planos_data["planos"]]
     return {
-        "name": "cotar_seguro",
-        "description": (
-            "Solicita uma cotacao real de seguro auto para a seguradora. So chame quando "
-            "idade, ano do veiculo e plano desejado ja estiverem confirmados com o lead."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "plano_id": {"type": "string", "enum": plano_ids},
-                "idade": {"type": "integer"},
-                "veiculo_ano": {"type": "integer"},
-                "cep": {"type": "string"},
-                "data_inicio": {"type": "string", "description": "YYYY-MM-DD, opcional"},
+        "type": "function",
+        "function": {
+            "name": "cotar_seguro",
+            "description": (
+                "Solicita uma cotacao real de seguro auto para a seguradora. So chame quando "
+                "idade, ano do veiculo e plano desejado ja estiverem confirmados com o lead."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "plano_id": {"type": "string", "enum": plano_ids},
+                    "idade": {"type": "integer"},
+                    "veiculo_ano": {"type": "integer"},
+                    "cep": {"type": "string"},
+                    "data_inicio": {"type": "string", "description": "YYYY-MM-DD, opcional"},
+                },
+                "required": ["plano_id", "idade", "veiculo_ano"],
             },
-            "required": ["plano_id", "idade", "veiculo_ano"],
         },
     }
 
@@ -190,21 +198,24 @@ async def handle_message(
         messages.append(
             {
                 "role": "assistant",
-                "content": [
-                    {"type": "tool_use", "id": tool_use.id, "name": tool_use.name, "input": tool_use.input}
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": tool_use.id,
+                        "type": "function",
+                        "function": {
+                            "name": tool_use.name,
+                            "arguments": json.dumps(tool_use.input, ensure_ascii=False),
+                        },
+                    }
                 ],
             }
         )
         messages.append(
             {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": tool_use.id,
-                        "content": json.dumps(tool_result_payload, ensure_ascii=False),
-                    }
-                ],
+                "role": "tool",
+                "tool_call_id": tool_use.id,
+                "content": json.dumps(tool_result_payload, ensure_ascii=False),
             }
         )
         response = await llm_client.create(system=system_prompt, messages=messages, tools=[tool])
